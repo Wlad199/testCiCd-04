@@ -1,0 +1,85 @@
+#  Название workflow, которое будет отображаться во вкладке Actions
+name: CI/CD Pipeline
+
+#  Блок триггеров: когда именно должен запускаться этот пайплайн
+on:
+  #  Запускать при каждом пуше (отправке кода) в ветку main
+  push:
+    branches: [ main ]
+  #  Запускать при создании или обновлении Pull Request, нацеленного в ветку main
+  pull_request:
+    branches: [ main ]
+  #  Позволяет запускать этот workflow вручную через кнопку "Run workflow" в интерфейсе GitHub
+  workflow_dispatch: 
+
+#  Блок задач (jobs), которые будут выполняться
+jobs:
+  #  Идентификатор задачи. Именно это имя ("quality-and-deploy") нужно искать при настройке Branch Protection
+  quality-and-deploy:
+    #  Указываем, что задача будет выполняться на свежей виртуальной машине с последней версией Ubuntu
+    runs-on: ubuntu-latest
+    
+    #  Список последовательных шагов (steps)
+    steps:
+      #  1. Скачивание кода. Без этого шага виртуальная машина "пустая", и мы не сможем работать с файлами проекта
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      #  2. Установка Node.js. Указываем версию 22 (LTS) и включаем кеширование npm 
+      #  (кеш ускоряет повторные запуски, чтобы каждый раз не скачивать пакеты заново)
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      #  3. Установка зависимостей. Используем npm ci (clean install), 
+      #  который строго следует package-lock.json. Он гарантирует, что зависимости установятся 
+      #  точно в тех же версиях, что и у вас локально (в отличие от обычного npm install)
+      - name: Install dependencies
+        run: npm ci
+
+      #  4. Проверка типов TypeScript. Если в коде есть ошибки типов, шаг (и весь пайплайн) упадет
+      - name: Type check
+        run: npm run typecheck
+
+      #  5. Подготовка Nuxt. Генерирует папку .nuxt, включая файлы типов и конфиг для ESLint.
+      #  Крайне важно запускать это ДО линтера, иначе ESLint не найдет свой конфиг и упадет с ошибкой
+      - name: Prepare Nuxt
+        run: npx nuxi prepare
+
+      #  6. Проверка стиля кода (линтинг). Ищет неиспользуемые переменные, забытые пробелы и т.д.
+      - name: Lint
+        run: npm run lint
+
+      #  7. Запуск юнит-тестов (пока закомментировано).
+      #  Когда настроите Vitest, раскомментируйте, чтобы тесты блокировали деплой при ошибках
+      #  - name: Run tests
+      #    run: npm run test
+
+      #  8. Получение настроек проекта из Vercel. 
+      #  Скачивает переменные окружения (Environment Variables), которые настроены в панели Vercel,
+      #  чтобы сборка использовала их (например, API-ключи)
+      - name: Pull Vercel Environment Information
+        run: npx vercel pull --yes --environment=production --token=${{ secrets.VERCEL_TOKEN }}
+        env:
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+
+      #  9. Сборка проекта. Собирает Nuxt-приложение (SSR) прямо внутри GitHub Actions,
+      #  используя конфигурацию Vercel. Результат сохраняется в папку .vercel/output
+      - name: Build Project Artifacts
+        run: npx vercel build --prod --token=${{ secrets.VERCEL_TOKEN }}
+        env:
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+
+      #  10. Деплой на Vercel. Отправляет уже собранные файлы (флаг --prebuilt) на серверы Vercel.
+      #  Условие "if" гарантирует, что деплой произойдет ТОЛЬКО при пуше в ветку main.
+      #  При создании Pull Request этот шаг будет пропущен (проверки пройдут, но код не задеплоится)
+      - name: Deploy to Vercel (только для main)
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        run: npx vercel deploy --prebuilt --prod --token=${{ secrets.VERCEL_TOKEN }}
+        env:
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}

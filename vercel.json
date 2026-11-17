@@ -1,0 +1,9 @@
+{
+	"framework": "nuxtjs",
+	"installCommand": "npm ci",
+	"buildCommand": "npm run build",
+	"$schema": "https://openapi.vercel.sh/vercel.json",
+	"git": {
+		"deploymentEnabled": false
+	}
+}
