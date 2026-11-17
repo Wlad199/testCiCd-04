@@ -7,6 +7,7 @@
 		<li>Lorem ipsum dolor sit amet.</li>
 		<li>Lorem ipsum dolor sit amet.</li>
 	</ul>
+	<button>Click me</button>
 </template>
 
 <script setup lang='ts'></script>
